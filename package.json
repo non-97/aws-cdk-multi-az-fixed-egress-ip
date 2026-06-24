@@ -2,8 +2,7 @@
   "name": "aws-cdk-multi-az-fixed-egress-ip",
   "version": "0.1.0",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
+    "type-check": "tsc --noEmit",
     "test": "jest",
     "cdk": "cdk"
   },

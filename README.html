@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-AZ Fixed Egress IP</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1b222c; --border:#2a313c;
+    --text:#e6edf3; --muted:#9aa7b4; --accent:#4aa3ff; --accent2:#7ee787;
+    --warn:#ffb454; --danger:#ff7b72; --code:#0b0f14;
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif;
+    line-height:1.7; font-size:15px;
+  }
+  .wrap{max-width:980px; margin:0 auto; padding:0 20px 80px}
+  header.hero{
+    background:linear-gradient(135deg,#10243b 0%,#0e1116 70%);
+    border-bottom:1px solid var(--border); padding:56px 20px 40px; margin-bottom:32px;
+  }
+  header.hero .inner{max-width:980px; margin:0 auto}
+  .badge{display:inline-block; font-size:12px; letter-spacing:.04em; color:var(--accent2);
+    border:1px solid #2c5b3a; background:#11271a; padding:3px 10px; border-radius:999px; margin-bottom:14px}
+  h1{font-size:30px; margin:0 0 8px; letter-spacing:-.01em}
+  h1 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--accent)}
+  .lead{color:var(--muted); font-size:16px; max-width:760px; margin:0}
+  h2{font-size:21px; margin:42px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  h3{font-size:16px; margin:26px 0 10px; color:var(--accent2)}
+  p{margin:10px 0}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.88em;
+    background:#1f2630; border:1px solid var(--border); padding:1px 6px; border-radius:6px; color:#d8e2ec}
+  pre{background:var(--code); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px 18px; overflow:auto; font-size:13px; line-height:1.55}
+  pre code{background:none; border:none; padding:0; color:#cdd9e5}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14px}
+  th,td{border:1px solid var(--border); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:var(--panel2); color:#cdd9e5; font-weight:600}
+  tr:nth-child(even) td{background:#12171e}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin:16px 0}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px}
+  .card h4{margin:0 0 6px; font-size:15px}
+  .card p{margin:0; color:var(--muted); font-size:13.5px}
+  .callout{border-left:4px solid var(--accent); background:var(--panel); border-radius:8px;
+    padding:12px 16px; margin:16px 0}
+  .callout.warn{border-left-color:var(--warn)}
+  .callout.danger{border-left-color:var(--danger)}
+  .callout .t{font-weight:700; display:block; margin-bottom:4px}
+  .callout.warn .t{color:var(--warn)} .callout.danger .t{color:var(--danger)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .pill{display:inline-block; font-size:11.5px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); color:var(--muted)}
+  .toc{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:14px 20px; margin:0 0 10px}
+  .toc ul{margin:6px 0 0; padding-left:18px; columns:2; column-gap:30px}
+  .toc li{margin:3px 0}
+  hr{border:none; border-top:1px solid var(--border); margin:36px 0}
+  footer{color:var(--muted); font-size:12.5px; text-align:center; margin-top:50px}
+  .ok{color:var(--accent2)} .no{color:var(--danger)}
+  .small{font-size:13px; color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <span class="badge">AWS CDK / TypeScript</span>
+    <h1><span class="mono">aws-cdk-multi-az-fixed-egress-ip</span></h1>
+    <p class="lead">
+      異なる AZ にあるクライアントから、<strong>送信元 IP を 1 つしか許可しない接続先サーバー</strong>へ、
+      <strong>常に単一の固定送信元 IP</strong> で通信しつつ <strong>Multi-AZ 可用性</strong>を保つための AWS 環境を CDK で構築する。
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <nav class="toc">
+    <strong>目次</strong>
+    <ul>
+      <li><a href="#problem">解きたい課題</a></li>
+      <li><a href="#idea">中核アイデア</a></li>
+      <li><a href="#arch">アーキテクチャ</a></li>
+      <li><a href="#cidr">ネットワーク設計</a></li>
+      <li><a href="#flow">通信フロー</a></li>
+      <li><a href="#failover">フェイルオーバー</a></li>
+      <li><a href="#structure">プロジェクト構成</a></li>
+      <li><a href="#deploy">デプロイ手順</a></li>
+      <li><a href="#gotchas">実機で判明した注意点</a></li>
+      <li><a href="#verify">検証</a></li>
+    </ul>
+  </nav>
+
+  <h2 id="problem">解きたい課題</h2>
+  <p>
+    接続先サーバー(外部の連携先)は <strong>送信元 IP を 1 つだけ</strong> ホワイトリスト登録できる。
+    一方、こちら側のクライアントは <strong>可用性のため複数 AZ</strong> に分散している。
+    プライベート IP は <strong>サブネット = AZ に固定</strong>されるため、そのままでは「AZ ごとに別の送信元 IP」になり 1 IP 制約を満たせない。
+  </p>
+  <p class="small">ゴール: どの AZ のクライアントから出ても送信元は常に <code>10.10.0.85</code>、かつ AZ 障害に耐える。</p>
+
+  <h2 id="idea">中核アイデア</h2>
+  <div class="grid">
+    <div class="card">
+      <h4>VIP を ENI に固定しない</h4>
+      <p>固定送信元 IP <code>10.10.0.85</code> はどの ENI にも割り当てず、<b>SNAT の masquerade 送信元</b>かつ<b>専用 /28 サブネットの中身</b>として扱う。</p>
+    </div>
+    <div class="card">
+      <h4>戻りは VGW でサブネット単位に向ける</h4>
+      <p>戻り(宛先 <code>.85</code>)は <b>VGW のゲートウェイルートテーブル</b>で <code>10.10.0.80/28 → 現用 SNAT ENI</code> に向ける。<code>/32</code> は不可なので専用サブネットを用意。</p>
+    </div>
+    <div class="card">
+      <h4>1 枚 ENI + ASG で常時 2 台</h4>
+      <p>単一 ASG(desired=2, <code>balanced-only</code>)で各 AZ 1 台ずつ常時起動。SNAT は<b>プライマリ ENI 1 枚</b>。向け先 ENI が入れ替えで変わるため、ルートは Lambda が現用 ENI へ向ける。</p>
+    </div>
+  </div>
+  <div class="callout">
+    <span class="t">なぜ /32 ではなくサブネット単位なのか</span>
+    VPC ルートテーブル(サブネット用もゲートウェイ用も)で <em>ローカルルートより具体的なルート</em>の宛先は
+    「サブネットの CIDR ブロック全体」に限られ、<code>/32</code> や個別ホスト IP は指定できない
+    (<span class="mono">AWS::EC2::GatewayRouteTableAssociation</span>)。よって VIP を含む <code>/28</code> を空サブネットとして実在させ、その CIDR を現用 ENI へ向ける。
+  </div>
+
+  <h2 id="arch">アーキテクチャ</h2>
+  <pre><code>            ┌──────────────── クライアント VPC (10.10.0.0/24) ─────────────────┐
+            │                                                                  │
+            │  az-a: クライアント#1 ─┐        ┌─ SNAT#1 (現用)             │
+            │  az-c: クライアント#2 ─┤        ├─ SNAT#2 (待機) 単一ASG 各AZ1台│
+            │                        │        │   各 1 枚 ENI (プライマリのみ)   │
+            │   送信RT: 192.168.100.0/24 → 現用SNAT ENI (Lambda が投入)         │
+            │                                                                  │
+            │   VIP専用サブネット 10.10.0.80/28 (.85, 空)                       │
+            │   VGW + ゲートウェイRT(edge): 10.10.0.80/28 → 現用SNAT ENI        │
+            └───────────────┬──────────────────────────────────────────────────┘
+                            │  Site-to-Site VPN (IPsec + BGP)
+            ┌───────────────┴──────────── 接続先サーバー VPC (192.168.100.0/24) ┐
+            │   libreswan ルーター (CGW役, .5)  ──  接続先サーバー (.20)         │
+            │                                       送信元 .85 のみ allowlist    │
+            └──────────────────────────────────────────────────────────────────┘
+
+  送信: クライアント → 現用SNAT ENI → SNAT(送信元を .85 に固定) → VGW → VPN → 接続先
+  戻り: 接続先 → VPN → VGW → ゲートウェイRT(10.10.0.80/28) → 現用SNAT ENI → クライアント</code></pre>
+
+  <h2 id="cidr">ネットワーク設計</h2>
+  <h3>クライアント VPC <span class="pill mono">10.10.0.0/24</span></h3>
+  <table>
+    <thead><tr><th>用途</th><th>CIDR</th><th>AZ</th><th>備考</th></tr></thead>
+    <tbody>
+      <tr><td>クライアント A</td><td class="mono">10.10.0.0/27</td><td>az-a</td><td>クライアント#1</td></tr>
+      <tr><td>クライアント C</td><td class="mono">10.10.0.32/27</td><td>az-c</td><td>クライアント#2</td></tr>
+      <tr><td>SNAT A</td><td class="mono">10.10.0.64/28</td><td>az-a</td><td>SNAT#1 (ASG, 1 枚 ENI) = 現用の向け先候補</td></tr>
+      <tr><td><b>VIP 専用</b></td><td class="mono">10.10.0.80/28</td><td>az-a</td><td><b>空サブネット。<span class="mono">10.10.0.85</span> を含み向ける対象</b></td></tr>
+      <tr><td>SNAT C</td><td class="mono">10.10.0.96/28</td><td>az-c</td><td>SNAT#2 (ASG, 1 枚 ENI) = 待機の向け先候補</td></tr>
+    </tbody>
+  </table>
+  <p class="small">
+    VGW を VPC にアタッチ(BGP, AWS 側 ASN 64512)。ルートテーブルは用途ごとに共有(AZ 固有のルーティングは不要):
+    <code>client-rt</code>(クライアント 2 サブネット, public)/ <code>snat-rt</code>(SNAT 2 サブネット, public)。
+    <b>VIP 専用サブネットは空なので専用 RT を持たず、VPC メイン RT を使う</b>(向ける対象として実在させるのみ)。
+  </p>
+
+  <h3>接続先サーバー VPC <span class="pill mono">192.168.100.0/24</span>(別 VPC, S2S VPN 接続)</h3>
+  <table>
+    <thead><tr><th>用途</th><th>CIDR</th><th>備考</th></tr></thead>
+    <tbody>
+      <tr><td>単一サブネット</td><td class="mono">192.168.100.0/24</td><td>libreswan ルーター(<span class="mono">.5</span>, CGW 役 + EIP)と接続先サーバー(<span class="mono">.20</span>, 送信元 <span class="mono">.85</span> のみ許可)を同居。ルーターが接続先に直結 → FRR aggregate のブラックホール回避</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="flow">通信フロー</h2>
+  <table>
+    <thead><tr><th>方向</th><th>経路</th></tr></thead>
+    <tbody>
+      <tr><td>送信</td><td>クライアント → (クライアントRT) 現用 SNAT ENI → SNAT で送信元を <code>.85</code> に固定 → (SNATサブネットRT, BGP伝播) VGW → VPN → ルーター → 接続先サーバー</td></tr>
+      <tr><td>戻り</td><td>接続先サーバー → ルーター → VPN → VGW → (ゲートウェイRT) <code>10.10.0.80/28</code> → 現用 SNAT ENI → conntrack で逆変換 → クライアント</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warn">
+    <span class="t">非対称ルーティング非サポート</span>
+    送信(クライアントRT)と戻り(VGW ゲートウェイRT)は必ず<strong>同一の現用 ENI</strong>に揃える。フェイルオーバー時は両方を同時に付け替える。
+  </div>
+
+  <h2 id="failover">フェイルオーバー(イベント駆動)</h2>
+  <div class="grid">
+    <div class="card"><h4>① イベント駆動の検知(停止 / 終了)</h4><p>インスタンス停止/終了で <code>EC2 Instance State-change Notification</code> が<b>数秒</b>で発火 → Lambda。停止したインスタンスは describe に現れなくなり、<b>秒単位</b>で待機 AZ へ切り替わる。全件届くので Lambda 冒頭で自 ASG 以外は即 return。</p></div>
+    <div class="card"><h4>② 詳細なヘルスチェックによる検知(経路破損)</h4><p>「稼働しているが転送経路が壊れた」場合に備えた予備の検知。15 秒毎に <code>ip_forward</code> / SNAT ルール / 上流到達性(いずれもインスタンス固有の故障)を検査し <code>FixedEgress/SnatPathHealthy</code> を発行、AZ ごとに監視(<b>欠損は breaching</b>)。</p></div>
+    <div class="card"><h4>③ ルート管理 Lambda</h4><p>上記イベントと起動完了(launch)→ Lambda(Python, JSON ログ, 同時実行 1)。現用 AZ の<b>インスタンス ENI</b>へ RT を <code>ReplaceRoute</code> / <code>CreateRoute</code>。初回ルートは launch イベントで作る。</p></div>
+  </div>
+  <p class="small">
+    現用はできるだけ維持する(現用が正常 <b>かつ</b> 稼働中なら切り替えない。フラッピング防止)。待機系は常時起動なので、切り替えはルートの付け替えのみ。<b>判定は「正常 かつ ENI が存在」</b>なので、停止インスタンスは即 usable=false になり待機 AZ へ付け替わる。
+    source/dest 無効化は各インスタンスが userdata で自身に実施。現用 ENI が動的なため、送信 / 戻りルートの実体は CDK ではなく Lambda が管理する。
+    <br>アラームが ALARM の AZ は、正常な対向 AZ があるとき異常なインスタンスを ASG 的に Unhealthy にして入れ替える(条件付きフェイルオーバー。両系 ALARM の全系障害では入れ替えず据え置く)。起動直後のインスタンスは ASG の grace period と起動からの経過時間で保護し、起動と入れ替えの繰り返しを防ぐ。
+  </p>
+
+  <h3>ルート切り替えが必要なシナリオと対応</h3>
+  <table>
+    <thead><tr><th>シナリオ</th><th>方式(トリガー)</th><th>ルートの操作</th><th>備考</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>現用 EC2 インスタンスの停止</td>
+        <td>EventBridge(EC2 状態変化 <code>stopping</code>)→ Lambda</td>
+        <td>待機 AZ へフェイルオーバー(<b>秒</b>)</td>
+        <td>Lambda 内で停止された EC2 が SNAT(自 ASG)かどうか判定し、無関係なら即 return</td>
+      </tr>
+      <tr>
+        <td>現用 EC2 の終了(ASG 置換 / 障害 / <code>stopping</code> を経ない直接終了)</td>
+        <td>EventBridge(EC2 状態変化 <code>shutting-down</code>)→ Lambda</td>
+        <td>待機 AZ へフェイルオーバー(<b>秒</b>)</td>
+        <td>停止と同じ経路。<code>stopping</code> / <code>shutting-down</code> の起点状態のみ購読(<code>stopped</code> / <code>terminated</code> は後追いで購読しない)</td>
+      </tr>
+      <tr>
+        <td>稼働しているが転送経路が破損(<code>ip_forward</code> / SNAT ルール / 上流到達不可)</td>
+        <td>詳細なヘルスチェック → CloudWatch アラーム → EventBridge → Lambda</td>
+        <td>待機 AZ へフェイルオーバー + 異常なインスタンスを入れ替え(1〜2 分)</td>
+        <td>状態変化イベントが出ないケース用の予備の検知。欠損は breaching。正常な対向 AZ があるときだけ異常なインスタンスを <code>SetInstanceHealth</code> で Unhealthy にして入れ替え(両系 ALARM では入れ替えない)</td>
+      </tr>
+      <tr>
+        <td>新インスタンス起動(自己修復 / 初回)</td>
+        <td>EventBridge(EC2 Instance Launch Successful)→ Lambda</td>
+        <td>現用 AZ なら向ける / それ以外は現用を維持。初回はルート作成</td>
+        <td>ブートストラップ時は正常判定を待たず prefer AZ へ暫定で向ける</td>
+      </tr>
+      <tr>
+        <td>RT を置換するがインスタンスを作り直さないデプロイ</td>
+        <td><b>自動トリガーなし</b>(launch イベントが出ない)</td>
+        <td>新しい RT が空のまま自動では張られない</td>
+        <td><b>既知の運用注意</b>: ルート管理 Lambda を手動で 1 回実行して復旧する</td>
+      </tr>
+      <tr>
+        <td>待機インスタンスの入替 / 障害 AZ の復旧</td>
+        <td>各イベント → Lambda</td>
+        <td><b>ルート変更なし</b>(現用を維持)</td>
+        <td>不要な付け替え / 自動の切り戻しを避けフラッピング防止</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="small">
+    全シナリオで実体は <b>同一の冪等な Lambda</b>(同時実行 1 で直列化)。判定ロジックは共通: <code>usable = アラーム正常 AND 当該 AZ にインスタンス ENI が存在</code> → 現用が usable ならそのまま維持(切り替えない)→ 不可なら prefer AZ → ルート 3 本(クライアント RT ×2 + VGW ゲートウェイ RT)を <code>ReplaceRoute</code> / <code>CreateRoute</code>。
+    <br>※ ASG インスタンスを停止すると <code>stopping</code>(手動停止)に続き、ASG がそれを終了するため <code>shutting-down</code> も発火し Lambda は 2 回起動するが、2 回目は冪等な no-op(既に付け替え済み)。
+  </p>
+
+  <h2 id="structure">プロジェクト構成</h2>
+  <pre><code>bin/aws-cdk-multi-az-fixed-egress-ip.ts   エントリポイント (単一スタック)
+lib/
+  network-config.ts        全 CIDR / IP / ASN / PSK / VIP / タグを一元管理
+  cidr.ts                  サブネットゲートウェイIP算出
+  fixed-egress-stack.ts    FixedEgressStack (全 Construct を結線)
+  constructs/
+    client-vpc.ts          クライアント VPC + サブネット + 共有RT(client/snat) + VGW + IGW
+    snat-appliance.ts      単一ASG (desired=2, balanced-only, 1枚ENI)
+    fixed-egress-routing.ts SNAT RT伝播 / 空のVGWゲートウェイRT
+    snat-route-manager.ts  CWアラーム + EventBridge + ルート管理Lambda
+    client.ts              検証用クライアント EC2
+    destination-vpc.ts     接続先 VPC (ルーター + サーバー)
+    destination-vpn.ts     libreswan ルーター (CGW役)
+    destination-server.ts  送信元IP allowlist サーバー
+    site-to-site-vpn.ts    CGW + VPN Connection (BGP, トンネルオプション)
+src/ec2/                   各 EC2 の userdata (CloudFormation Fn::Sub)
+  snat-userdata.sh / client-userdata.sh
+  destination-server-userdata.sh / vpn-router-userdata.sh
+src/lambda/
+  snat-route-manager/index.py   現用ENI発見 / RT付け替え (Python)
+test/fixed-egress.test.ts  fine-grained assertions</code></pre>
+
+  <h2 id="deploy">デプロイ手順</h2>
+  <pre><code># 依存 (pnpm 前提 / npx は使わない)
+pnpm install
+
+# 型チェック / テスト / 合成
+node_modules/.bin/tsc --noEmit
+node_modules/.bin/jest
+node_modules/.bin/cdk synth
+
+# デプロイ
+node_modules/.bin/cdk deploy FixedEgressStack</code></pre>
+  <div class="callout warn">
+    <span class="t">userdata 変更は「再デプロイだけ」では効かない</span>
+    EBS ルートの EC2 は UserData 変更が <em>Some interruptions(再起動)</em> 止まりで、cloud-init は <strong>インスタンスにつき 1 回</strong>しか走らない。
+    新しい userdata を反映するにはインスタンスの<strong>作り直し</strong>が必要:
+    <ul style="margin:8px 0 0">
+      <li><b>SNAT(ASG)</b>: インスタンスを終了 → ASG が最新起動テンプレートで再作成(確実)</li>
+      <li><b>ルーター / サーバー(CfnInstance)</b>: 論理ID変更などで強制置換</li>
+    </ul>
+  </div>
+  <p class="small">検証コマンド(SSM 経由): <code>aws ssm send-command ... AWS-RunShellScript</code> で <code>/usr/local/bin/test-egress.sh</code> を実行すると、接続先が見た送信元 IP(<code>.85</code>)が返る。</p>
+
+  <h2 id="gotchas">実機で判明した注意点</h2>
+  <table>
+    <thead><tr><th>事象</th><th>原因 / 対処</th></tr></thead>
+    <tbody>
+      <tr><td>VIP を <code>/32</code> で向けられない</td><td>VPC ルートはサブネット CIDR 単位まで。VIP を含む <code>/28</code> を空サブネットにして向ける。</td></tr>
+      <tr><td>VPN トンネルが両系 DOWN</td><td>AL2023 に <code class="no">libreswan</code> / <code class="no">frr</code> が無い。IPsec は <code class="ok">libreswan</code>、BGP は <code class="ok">spal-release</code> 経由の <code class="ok">frr</code> を使う。親 IF は <code>ens5</code>。</td></tr>
+      <tr><td>SNAT ルールが作られない</td><td>AL2023 に <code class="no">iptables</code> / <code class="no">nft</code> が無い。全サブネット public 化 → <code class="ok">dnf install iptables-nft</code>。</td></tr>
+      <tr><td>userdata を直しても反映されない</td><td>EBS ルートは UserData 変更で再起動のみ。cloud-init は 1 回だけ。インスタンスを作り直す。</td></tr>
+      <tr><td>EIPAssociation が AlreadyExists</td><td>ターゲット(<code>instanceId</code>)未指定の不正な関連付け。ENI / インスタンスを指定する。</td></tr>
+    </tbody>
+  </table>
+  <div class="callout danger">
+    <span class="t">VGW ゲートウェイルートテーブルの制約</span>
+    propagation 有効だと関連付け不可 → propagation 無効の専用 RT にする。向け先 ENI は running インスタンスにアタッチ済みであること。別 AZ の ENI を向け先にする戻り疎通は仕様で明示されていないため要 PoC。
+  </div>
+
+  <h2 id="verify">検証ステータス</h2>
+  <table>
+    <thead><tr><th>項目</th><th>結果</th></tr></thead>
+    <tbody>
+      <tr><td><code>tsc --noEmit</code></td><td class="ok">パス</td></tr>
+      <tr><td><code>jest</code>(fine-grained assertions)</td><td class="ok">パス</td></tr>
+      <tr><td><code>cdk synth</code>(単一スタック)</td><td class="ok">成功</td></tr>
+      <tr><td>Fn::Sub プレースホルダ機械チェック</td><td class="ok">全て解決可</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+  <footer>
+    <p>リージョン: <span class="mono">ap-northeast-1</span> / 言語: TypeScript (AWS CDK v2) / パッケージ管理: pnpm</p>
+    <p>このドキュメントは自己完結型の単一 HTML(CSS 埋め込み)です。</p>
+  </footer>
+
+</div>
+</body>
+</html>

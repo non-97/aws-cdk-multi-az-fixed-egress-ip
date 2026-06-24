@@ -1,0 +1,4 @@
+allowBuilds:
+  unrs-resolver: set this to true or false
+minimumReleaseAgeExclude:
+  - aws-cdk@2.1127.0
